@@ -7,31 +7,42 @@ import os, re, glob, sqlite3 as db
 # This is the frame-splitting part (this will probably take a while depending on how fast your computer is)
 
 # Get all the mp4 files in the current folder (change file extension if needed)
-eps = glob.glob("*.mp4")
+###eps = glob.glob("*.mp4")
+eps = list()
+dirs = os.listdir()
+print('finding episodes')
+for dir in dirs:
+    if dir != "Featurettes":
+        print(f'adding episodes from {dir}')
+        eps.extend([ep for ep in glob.glob(f'{dir}/*.mkv')])
 
 # Number of frames per second you want the show to be split into
 fps = 1
 
-os.mkdir('frames')
+output_dir = "I:/office-frames"
+if not os.path.isdir(output_dir):
+    print("creating output directory: " + output_dir)
+    os.mkdir(output_dir)
 
 # Supports common file season-episode formats e.g. S01E01, 01x01, Season 1 Episode 1 etc.
 regx = re.compile(r"(?:.*)(?:s|season|)\s?(\d{1,2})\s?(?:e|x|episode|ep|\n)\s?(\d{1,2})", re.IGNORECASE)
 
 for ep in eps:
-    ep_regx = regx.match(ep)
+    ep_regx = regx.match(os.path.basename(ep))
 
     if ep_regx:
         # Parse to get the video's season and episode numbers
         season, episode = ep_regx.groups()
 
         # All videos will be stored in a folder called 'frames', inside another folder denoting the season number
-        out_path = f'./frames/S{season.zfill(2)}'
+        out_path = f'{output_dir}/S{season.zfill(2)}'
         if not os.path.isdir(out_path):
+            print("creating season directory: " + out_path)
             os.mkdir(out_path)
 
         # The outputted frame files will look like 00x00.jpg, where the number on the left side of the x is the episode number, and the number on the right side is the frame number.
         # Also scale down to 360p to save server space (and Twitter compresses the hell out of uploaded media anyway so no point having HD)
-        os.system(f'ffmpeg -i "{ep}" -vf "fps={fps},scale=640:360" {out_path}/{episode}x%d.jpg')
+        os.system(f'ffmpeg -i "{ep}" -filter_complex "[0:v][0:s]overlay[v]; [v]scale=640:360" -r {fps} {out_path}/{episode}x%d.jpg')
 
 
 # This half of the script will create the required (SQLite) database entries.
@@ -50,11 +61,12 @@ total_seasons = int(season)
 for n in range(total_seasons):
     current_season = str(n+1).zfill(2)
     
-    total_eps = len(glob.glob(f"./frames/S{current_season}/*x1.jpg"))
+    total_eps = len(glob.glob(f"{output_dir}/S{current_season}/*x1.jpg"))
+    print(f'Creating database for {total_eps} in season {current_season}')
 
     for i in range(total_eps):
         current_ep = str(i + 1).zfill(2)
-        frames = glob.glob(f"./frames/S{current_season}/{current_ep}x*.jpg")
+        frames = glob.glob(f"{output_dir}/S{current_season}/{current_ep}x*.jpg")
         cursor.execute(f"INSERT INTO show (ep, frames) VALUES (\"{current_season}x{current_ep}\", {len(frames)})")
         
 connection.commit()
